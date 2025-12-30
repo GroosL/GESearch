@@ -1,41 +1,39 @@
 #include <ctype.h>
 #include <dirent.h>
-#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <linux/limits.h>
 
-void computeLPSArray(char *pattern, int m, int *lps);
-int KMPSearch(char *pattern, char *string, int caseInsensitive);
+void computeLPSArray(const char *pattern, int m, int *lps);
+int KMPSearch(const char *pattern, const char *string, int caseInsensitive);
+void searchFile(const char *directory, const char *pattern,
+                int caseInsensitive, int recursive);
 
 int main(int argc, char *argv[]) {
-  if (argc < 3 || argc > 4) {
+  if (argc < 3) {
     puts("Usage: search <directory> <pattern> [-i]");
     puts("Flag: -i for case insensitive search");
     exit(1);
   }
-  struct dirent *at;
+
   char *dir = argv[1];
-  DIR *dr = opendir(dir);
+  int caseInsensitive = 0, recursive = 0;
 
-  if (!dr) {
-    printf("Could not open directory %s\n", dir);
-    exit(1);
+  for (int i = 3; i < argc; i++) {
+    if (strcmp(argv[i], "-i") == 0)
+      caseInsensitive = 1;
+
+    if (strcmp(argv[i], "-r") == 0)
+      recursive = 1;
   }
 
-  int flag = 0;
-  if (argc == 4 && strcmp(argv[3], "-i") == 0)
-    flag = 1;
-  while ((at = readdir(dr))) {
-    if (KMPSearch(argv[2], at->d_name, flag))
-      printf("%s\n", at->d_name);
-  }
+  searchFile(dir, argv[2], caseInsensitive, recursive);
 
-  closedir(dr);
   return 0;
 }
 
-void computeLPSArray(char *pattern, int m, int *lps) {
+void computeLPSArray(const char *pattern, int m, int *lps) {
   int len = 0;
   lps[0] = 0; // Always 0
 
@@ -56,7 +54,7 @@ void computeLPSArray(char *pattern, int m, int *lps) {
   }
 }
 
-int KMPSearch(char *pattern, char *string, int caseInsensitive) {
+int KMPSearch(const char *pattern, const char *string, int caseInsensitive) {
   int m = strlen(pattern);
   int n = strlen(string);
 
@@ -84,4 +82,31 @@ int KMPSearch(char *pattern, char *string, int caseInsensitive) {
     }
   }
   return 0;
+}
+
+void searchFile(const char *directory, const char *pattern,
+                int caseInsensitive, int recursive) {
+  struct dirent *at;
+  DIR *dr = opendir(directory);
+
+  if (!dr) {
+    printf("Could not open directory %s\n", directory);
+    exit(1);
+  }
+  
+  while ((at = readdir(dr))) {
+    if (strcmp(at->d_name, ".") == 0 || strcmp(at->d_name, "..") == 0) continue;
+
+    char path[PATH_MAX];
+    if (strcmp(directory, "/") == 0) snprintf(path, PATH_MAX, "%s%s", directory, at->d_name);
+    else snprintf(path, PATH_MAX, "%s/%s", directory, at->d_name);
+
+    if (KMPSearch(pattern, at->d_name, caseInsensitive))
+      printf("%s\n", path);
+    
+    if (at->d_type == DT_DIR && recursive)
+      searchFile(path, pattern, caseInsensitive, recursive);
+  }
+
+  closedir(dr);
 }
