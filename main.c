@@ -91,7 +91,7 @@ void searchFile(const char *directory, const char *pattern,
   DIR *dr = opendir(directory);
 
   if (!dr) {
-    printf("Could not open directory %s\n", directory);
+    fprintf(stderr, "Could not open directory %s\n", directory);
     return;
   }
   

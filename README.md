@@ -15,11 +15,11 @@ Or
 
 
 # Usage:
-`search <directory> <substring> [-i]`
+`search <directory> <substring> [-i] [-r]`
 
 ## Example
 `search /nix/store foo`
 
 `search /nix/store "foo bar"`
 
-`search /nix/store FoOBAR -i`
+`search /nix/store FoOBAR -i -r`
