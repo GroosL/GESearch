@@ -12,8 +12,9 @@ void searchFile(const char *directory, const char *pattern,
 
 int main(int argc, char *argv[]) {
   if (argc < 3) {
-    puts("Usage: search <directory> <pattern> [-i]");
+    puts("Usage: search <directory> <pattern> [-i] [-r]");
     puts("Flag: -i for case insensitive search");
+    puts("Flag: -r for recursive search");
     exit(1);
   }
 
