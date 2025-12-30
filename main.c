@@ -92,7 +92,7 @@ void searchFile(const char *directory, const char *pattern,
 
   if (!dr) {
     printf("Could not open directory %s\n", directory);
-    exit(1);
+    return;
   }
   
   while ((at = readdir(dr))) {
