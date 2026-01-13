@@ -4,22 +4,33 @@
 #include <stdlib.h>
 #include <string.h>
 #include <linux/limits.h>
+#include <unistd.h>
 
 void computeLPSArray(const char *pattern, int m, int *lps);
 int KMPSearch(const char *pattern, const char *string, int caseInsensitive);
 void searchFile(const char *directory, const char *pattern,
-                int caseInsensitive, int recursive);
+                int caseInsensitive, int recursive, int exact);
+
+static int strcmpInsensitive(const char* a, const char* b) {
+  while (*a && *b) {
+    if (tolower(*a) != tolower(*b)) return 0;
+    a++;
+    b++;
+  }
+  return *a == *b;
+}
 
 int main(int argc, char *argv[]) {
   if (argc < 3) {
-    puts("Usage: search <directory> <pattern> [-i] [-r]");
+    puts("Usage: search <directory> <pattern> [-i] [-r] [-e]");
     puts("Flag: -i for case insensitive search");
     puts("Flag: -r for recursive search");
+    puts("Flag: -e for exact search");
     exit(1);
   }
 
   char *dir = argv[1];
-  int caseInsensitive = 0, recursive = 0;
+  int caseInsensitive = 0, recursive = 0, exact = 0;
 
   for (int i = 3; i < argc; i++) {
     if (strcmp(argv[i], "-i") == 0)
@@ -27,9 +38,12 @@ int main(int argc, char *argv[]) {
 
     if (strcmp(argv[i], "-r") == 0)
       recursive = 1;
+
+    if (strcmp(argv[i], "-e") == 0)
+      exact = 1;
   }
 
-  searchFile(dir, argv[2], caseInsensitive, recursive);
+  searchFile(dir, argv[2], caseInsensitive, recursive, exact);
 
   return 0;
 }
@@ -86,7 +100,7 @@ int KMPSearch(const char *pattern, const char *string, int caseInsensitive) {
 }
 
 void searchFile(const char *directory, const char *pattern,
-                int caseInsensitive, int recursive) {
+                int caseInsensitive, int recursive, int exact) {
   struct dirent *at;
   DIR *dr = opendir(directory);
 
@@ -101,12 +115,24 @@ void searchFile(const char *directory, const char *pattern,
     char path[PATH_MAX];
     if (strcmp(directory, "/") == 0) snprintf(path, PATH_MAX, "%s%s", directory, at->d_name);
     else snprintf(path, PATH_MAX, "%s/%s", directory, at->d_name);
+    
+    int found = 0;
+    
+    if (exact) {
+      if (caseInsensitive)
+        found = strcmpInsensitive(at->d_name, pattern);
+      else
+        found = strcmp(at->d_name, pattern) == 0;
+    }
+    else {
+      found = KMPSearch(pattern, at->d_name, caseInsensitive);
+    }
 
-    if (KMPSearch(pattern, at->d_name, caseInsensitive))
+    if (found)
       printf("%s\n", path);
     
     if (at->d_type == DT_DIR && recursive)
-      searchFile(path, pattern, caseInsensitive, recursive);
+      searchFile(path, pattern, caseInsensitive, recursive, exact);
   }
 
   closedir(dr);
