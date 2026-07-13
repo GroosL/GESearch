@@ -10,6 +10,7 @@
 #include <stdint.h>
 
 #define MAX_IGNORE  32
+#define PATTERN_MAX  8096
 
 static bool g_caseInsensitive;
 static bool g_recursive;
@@ -17,9 +18,11 @@ static bool g_exact;
 static const char *g_pattern;
 static const char *g_ignoreList[MAX_IGNORE];
 static uint8_t g_ignoreCount = 0;
+static int g_lps[PATTERN_MAX];
+static int g_patternLength;
 
-void computeLPSArray(const char *g_pattern, int m, int *lps);
-int KMPSearch(const char *g_pattern, const char *string);
+void computeLPSArray();
+int KMPSearch(const char *string);
 void searchFile(const char *directory);
 
 static int strcmpInsensitive(const char* a, const char* b) {
@@ -58,6 +61,9 @@ int main(int argc, char *argv[]) {
 	g_caseInsensitive = 0;
   char *dir = argv[1];
 	g_pattern = argv[2];
+	g_patternLength = strlen(g_pattern);
+
+	computeLPSArray();
 
   for (int i = 3; i < argc; i++) {
     if (strcmp(argv[i], "-s") == 0)
@@ -82,33 +88,29 @@ int main(int argc, char *argv[]) {
   return 0;
 }
 
-void computeLPSArray(const char *g_pattern, int m, int *lps) {
+void computeLPSArray() {
   int len = 0;
-  lps[0] = 0; // Always 0
+  g_lps[0] = 0; // Always 0
 
   int i = 1;
-  while (i < m) {
+  while (i < g_patternLength) {
     if (g_pattern[i] == g_pattern[len]) {
       len++;
-      lps[i] = len;
+      g_lps[i] = len;
       i++;
     } else {
       if (len != 0) {
-        len = lps[len - 1];
+        len = g_lps[len - 1];
       } else {
-        lps[i] = 0;
+        g_lps[i] = 0;
         i++;
       }
     }
   }
 }
 
-int KMPSearch(const char *g_pattern, const char *string) {
-  int m = strlen(g_pattern);
+int KMPSearch(const char *string) {
   int n = strlen(string);
-
-  int lps[m];
-  computeLPSArray(g_pattern, m, lps);
 
   int i = 0, j = 0;
 
@@ -120,12 +122,12 @@ int KMPSearch(const char *g_pattern, const char *string) {
       i++;
     }
 
-    if (j == m) {
+    if (j == g_patternLength) {
       return 1;
-      j = lps[j - 1];
+      j = g_lps[j - 1];
     } else if (i < n && !match) {
       if (j != 0)
-        j = lps[j - 1];
+        j = g_lps[j - 1];
       else
         i++;
     }
@@ -158,7 +160,7 @@ void searchFile(const char *directory) {
         found = strcmp(at->d_name, g_pattern) == 0;
     }
     else {
-      found = KMPSearch(g_pattern, at->d_name);
+      found = KMPSearch(at->d_name);
     }
 
     if (found)
