@@ -27,7 +27,7 @@ void searchFile(const char *directory);
 
 static int strcmpInsensitive(const char *a, const char *b) {
   while (*a && *b) {
-    if (tolower(*a) != tolower(*b))
+    if (tolower((unsigned char)(*a)) != tolower((unsigned char)(*b)))
       return 0;
     a++;
     b++;
@@ -64,6 +64,11 @@ int main(int argc, char *argv[]) {
   g_pattern = argv[2];
   g_patternLength = strlen(g_pattern);
 
+	if (g_patternLength > PATTERN_MAX) {
+		fprintf(stderr, "Pattern too long!\n");
+		return 1;
+	}
+
   computeLPSArray();
 
   for (int i = 3; i < argc; i++) {
@@ -97,7 +102,7 @@ void computeLPSArray() {
   int i = 1;
   while (i < g_patternLength) {
     int equal = g_caseInsensitive
-                    ? (tolower(g_pattern[i]) == tolower(g_pattern[len]))
+                    ? (tolower((unsigned char)(g_pattern[i])) == tolower((unsigned char)(g_pattern[len])))
                     : (g_pattern[i] == g_pattern[len]);
     if (equal) {
       len++;
@@ -121,7 +126,7 @@ int KMPSearch(const char *string) {
 
   while (i < n) {
     int match = g_caseInsensitive
-                    ? (tolower(g_pattern[j]) == tolower(string[i]))
+                    ? (tolower((unsigned char)(g_pattern[j])) == tolower((unsigned char)string[i]))
                     : (g_pattern[j] == string[i]);
     if (match) {
       j++;
@@ -130,7 +135,6 @@ int KMPSearch(const char *string) {
 
     if (j == g_patternLength) {
       return 1;
-      j = g_lps[j - 1];
     } else if (i < n && !match) {
       if (j != 0)
         j = g_lps[j - 1];
