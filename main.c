@@ -22,10 +22,12 @@ static const char *g_ignoreList[MAX_IGNORE];
 static uint8_t g_ignoreCount = 0;
 static int g_lps[PATTERN_MAX];
 static int g_patternLength;
+static int g_shift[PATTERN_MAX];
 
 void computeLPSArray();
 int KMPSearch(const char *string);
 void searchFile(const char *directory);
+void preprocess();
 
 static int strcmpInsensitive(const char *a, const char *b) {
   while (*a && *b) {
@@ -91,10 +93,35 @@ int main(int argc, char *argv[]) {
     }
   }
 
-  computeLPSArray();
+  // computeLPSArray();
+	preprocess();
   searchFile(dir);
 
   return 0;
+}
+
+void preprocess() {
+	for (int i = 0; i < 256; i++)
+		g_shift[i] = g_patternLength;
+
+	for (int i = 0; i < g_patternLength - 1; i++) {
+		g_shift[(unsigned char)g_pattern[i]] = g_patternLength - 1 - i;
+	}
+}
+
+int BMHSearch(const char* string) {
+	int n = strlen(string);
+	
+	size_t i = 0, j;
+	while (i <= n - g_patternLength) {
+		j = g_patternLength;
+		while (j > 0 && string[i + j -1] == g_pattern[j-1]) {
+			j--;
+		}
+		if (j == 0) return 1;
+		i += g_shift[(unsigned char)string[i + g_patternLength - 1]];
+	}
+	return 0;
 }
 
 void computeLPSArray() {
@@ -159,6 +186,8 @@ void searchFile(const char *directory) {
   while ((at = readdir(dr))) {
     if (strcmp(at->d_name, ".") == 0 || strcmp(at->d_name, "..") == 0)
       continue;
+		
+		size_t len = strlen(at->d_name);
 
     char path[PATH_MAX];
     if (strcmp(directory, "/") == 0)
@@ -174,7 +203,8 @@ void searchFile(const char *directory) {
       else
         found = strcmp(at->d_name, g_pattern) == 0;
     } else {
-      found = KMPSearch(at->d_name);
+			found = BMHSearch(at->d_name);
+      // found = KMPSearch(at->d_name);
     }
 
     if (found)
