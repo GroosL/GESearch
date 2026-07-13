@@ -12,6 +12,8 @@
 #define MAX_IGNORE 32
 #define PATTERN_MAX 8096
 
+static char stdoutBuffer[1 << 20];
+
 static bool g_caseInsensitive;
 static bool g_recursive;
 static bool g_exact;
@@ -49,6 +51,7 @@ static bool shouldIgnore(const char *name) {
 }
 
 int main(int argc, char *argv[]) {
+	// setvbuf(stdout, stdoutBuffer, _IOFBF, sizeof(stdoutBuffer));
   if (argc < 3) {
     puts("Usage: search <directory> <g_pattern> [-s] [-r] [-e] [-i <dir>]");
     puts("Flag: -s for case insensitive search");
@@ -69,8 +72,6 @@ int main(int argc, char *argv[]) {
 		return 1;
 	}
 
-  computeLPSArray();
-
   for (int i = 3; i < argc; i++) {
     if (strcmp(argv[i], "-s") == 0)
       g_caseInsensitive = 1;
@@ -90,6 +91,7 @@ int main(int argc, char *argv[]) {
     }
   }
 
+  computeLPSArray();
   searchFile(dir);
 
   return 0;
@@ -179,7 +181,7 @@ void searchFile(const char *directory) {
       printf("%s\n", path);
 
     if (at->d_type == DT_DIR && g_recursive)
-      if (!shouldIgnore(at->d_name))
+      if (!shouldIgnore(path))
         searchFile(path);
   }
 
