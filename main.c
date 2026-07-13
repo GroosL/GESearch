@@ -14,20 +14,23 @@
 
 static char stdoutBuffer[1 << 20];
 
+static const char *g_pattern;
+static int g_patternLength;
+
 static bool g_caseInsensitive;
 static bool g_recursive;
 static bool g_exact;
-static const char *g_pattern;
+
 static const char *g_ignoreList[MAX_IGNORE];
 static uint8_t g_ignoreCount = 0;
-static int g_lps[PATTERN_MAX];
-static int g_patternLength;
-static int g_shift[PATTERN_MAX];
 
-void computeLPSArray();
-int KMPSearch(const char *string);
-void searchFile(const char *directory);
+static int g_shift[256];
+static unsigned char g_lower[256];
+static unsigned char g_patternLower[PATTERN_MAX];
+
 void preprocess();
+int BMHSearch(const char *string);
+void searchFile(char* path, size_t len);
 
 static int strcmpInsensitive(const char *a, const char *b) {
   while (*a && *b) {
@@ -53,26 +56,29 @@ static bool shouldIgnore(const char *name) {
 }
 
 int main(int argc, char *argv[]) {
-	// setvbuf(stdout, stdoutBuffer, _IOFBF, sizeof(stdoutBuffer));
+  // setvbuf(stdout, stdoutBuffer, _IOFBF, sizeof(stdoutBuffer));
   if (argc < 3) {
-    puts("Usage: search <directory> <g_pattern> [-s] [-r] [-e] [-i <dir>]");
+    puts("Usage: search <path> <g_pattern> [-s] [-r] [-e] [-i <dir>]");
     puts("Flag: -s for case insensitive search");
     puts("Flag: -r for g_recursive search");
     puts("Flag: -e for g_exact search");
-    puts("Flag: -i <dir> to ignore a directory");
+    puts("Flag: -i <dir> to ignore a path");
     exit(1);
   }
   g_exact = 0;
   g_recursive = 0;
   g_caseInsensitive = 0;
-  char *dir = argv[1];
+
+	char path[PATH_MAX];
+	strcpy(path, argv[1]);
+
   g_pattern = argv[2];
   g_patternLength = strlen(g_pattern);
 
-	if (g_patternLength > PATTERN_MAX) {
-		fprintf(stderr, "Pattern too long!\n");
-		return 1;
-	}
+  if (g_patternLength > PATTERN_MAX) {
+    fprintf(stderr, "Pattern too long!\n");
+    return 1;
+  }
 
   for (int i = 3; i < argc; i++) {
     if (strcmp(argv[i], "-s") == 0)
@@ -93,107 +99,90 @@ int main(int argc, char *argv[]) {
     }
   }
 
-  // computeLPSArray();
-	preprocess();
-  searchFile(dir);
+
+  preprocess();
+  searchFile(path, strlen(path));
 
   return 0;
 }
 
-void preprocess() {
-	for (int i = 0; i < 256; i++)
-		g_shift[i] = g_patternLength;
+void preprocess(void) {
+  for (int i = 0; i < 256; i++)
+    g_lower[i] = (unsigned char)tolower(i);
 
-	for (int i = 0; i < g_patternLength - 1; i++) {
-		g_shift[(unsigned char)g_pattern[i]] = g_patternLength - 1 - i;
-	}
-}
+  if (g_caseInsensitive) {
+    for (int i = 0; i < g_patternLength; i++)
+      g_patternLower[i] = g_lower[(unsigned char)g_pattern[i]];
+  }
 
-int BMHSearch(const char* string) {
-	int n = strlen(string);
-	
-	size_t i = 0, j;
-	while (i <= n - g_patternLength) {
-		j = g_patternLength;
-		while (j > 0 && string[i + j -1] == g_pattern[j-1]) {
-			j--;
-		}
-		if (j == 0) return 1;
-		i += g_shift[(unsigned char)string[i + g_patternLength - 1]];
-	}
-	return 0;
-}
+  for (int i = 0; i < 256; i++)
+    g_shift[i] = g_patternLength;
 
-void computeLPSArray() {
-  int len = 0;
-  g_lps[0] = 0; // Always 0
-
-  int i = 1;
-  while (i < g_patternLength) {
-    int equal = g_caseInsensitive
-                    ? (tolower((unsigned char)(g_pattern[i])) == tolower((unsigned char)(g_pattern[len])))
-                    : (g_pattern[i] == g_pattern[len]);
-    if (equal) {
-      len++;
-      g_lps[i] = len;
-      i++;
-    } else {
-      if (len != 0) {
-        len = g_lps[len - 1];
-      } else {
-        g_lps[i] = 0;
-        i++;
-      }
-    }
+  if (g_caseInsensitive) {
+    for (int i = 0; i < g_patternLength - 1; i++)
+      g_shift[g_patternLower[i]] = g_patternLength - 1 - i;
+  } else {
+    for (int i = 0; i < g_patternLength - 1; i++)
+      g_shift[(unsigned char)g_pattern[i]] = g_patternLength - 1 - i;
   }
 }
 
-int KMPSearch(const char *string) {
+int BMHSearch(const char *string) {
   int n = strlen(string);
 
-  int i = 0, j = 0;
+  if (n < g_patternLength)
+    return 0;
 
-  while (i < n) {
-    int match = g_caseInsensitive
-                    ? (tolower((unsigned char)(g_pattern[j])) == tolower((unsigned char)string[i]))
-                    : (g_pattern[j] == string[i]);
-    if (match) {
-      j++;
-      i++;
-    }
+  size_t i = 0;
 
-    if (j == g_patternLength) {
-      return 1;
-    } else if (i < n && !match) {
-      if (j != 0)
-        j = g_lps[j - 1];
-      else
-        i++;
+  while (i <= (size_t)(n - g_patternLength)) {
+    int j = g_patternLength - 1;
+
+    if (g_caseInsensitive) {
+      while (j >= 0 &&
+             g_lower[(unsigned char)string[i + j]] == g_patternLower[j]) {
+        j--;
+      }
+
+      if (j < 0)
+        return 1;
+
+      i += g_shift[g_lower[(unsigned char)string[i + g_patternLength - 1]]];
+    } else {
+      while (j >= 0 && string[i + j] == g_pattern[j]) {
+        j--;
+      }
+
+      if (j < 0)
+        return 1;
+
+      i += g_shift[(unsigned char)string[i + g_patternLength - 1]];
     }
   }
+
   return 0;
 }
 
-void searchFile(const char *directory) {
+void searchFile(char* path, size_t len) {
   struct dirent *at;
-  DIR *dr = opendir(directory);
+  DIR *dr = opendir(path);
 
   if (!dr) {
-    fprintf(stderr, "Could not open directory %s\n", directory);
+    fprintf(stderr, "Could not open path %s\n", path);
     return;
   }
 
   while ((at = readdir(dr))) {
     if (strcmp(at->d_name, ".") == 0 || strcmp(at->d_name, "..") == 0)
       continue;
-		
-		size_t len = strlen(at->d_name);
 
-    char path[PATH_MAX];
-    if (strcmp(directory, "/") == 0)
-      snprintf(path, PATH_MAX, "%s%s", directory, at->d_name);
-    else
-      snprintf(path, PATH_MAX, "%s/%s", directory, at->d_name);
+		size_t oldLen = len;
+		if (!(len == 1 && path[0] == '/'))
+			path[len++] = '/';
+		
+		size_t nameLen = strlen(at->d_name);
+		memcpy(path + len, at->d_name, nameLen + 1);
+		len += nameLen;
 
     int found = 0;
 
@@ -203,8 +192,7 @@ void searchFile(const char *directory) {
       else
         found = strcmp(at->d_name, g_pattern) == 0;
     } else {
-			found = BMHSearch(at->d_name);
-      // found = KMPSearch(at->d_name);
+      found = BMHSearch(at->d_name);
     }
 
     if (found)
@@ -212,8 +200,11 @@ void searchFile(const char *directory) {
 
     if (at->d_type == DT_DIR && g_recursive)
       if (!shouldIgnore(path))
-        searchFile(path);
-  }
+        searchFile(path, len);
 
+		path[oldLen] = '\0';
+		len = oldLen;
+  }
+	
   closedir(dr);
 }
