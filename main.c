@@ -1,16 +1,16 @@
 #include <ctype.h>
 #include <dirent.h>
+#include <linux/limits.h>
 #include <pthread.h>
+#include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <linux/limits.h>
 #include <unistd.h>
-#include <stdbool.h>
-#include <stdint.h>
 
-#define MAX_IGNORE  32
-#define PATTERN_MAX  8096
+#define MAX_IGNORE 32
+#define PATTERN_MAX 8096
 
 static bool g_caseInsensitive;
 static bool g_recursive;
@@ -25,9 +25,10 @@ void computeLPSArray();
 int KMPSearch(const char *string);
 void searchFile(const char *directory);
 
-static int strcmpInsensitive(const char* a, const char* b) {
+static int strcmpInsensitive(const char *a, const char *b) {
   while (*a && *b) {
-    if (tolower(*a) != tolower(*b)) return 0;
+    if (tolower(*a) != tolower(*b))
+      return 0;
     a++;
     b++;
   }
@@ -35,16 +36,16 @@ static int strcmpInsensitive(const char* a, const char* b) {
 }
 
 static bool shouldIgnore(const char *name) {
-	for (uint8_t i = 0; i < g_ignoreCount; i++) {
-		if (g_caseInsensitive) {
-			if (strcmpInsensitive(name, g_ignoreList[i]))
-				return true;
-			} else {
-					if (strcmp(name, g_ignoreList[i]) == 0)
-						return true;
-		}
-	}
-	return false;
+  for (uint8_t i = 0; i < g_ignoreCount; i++) {
+    if (g_caseInsensitive) {
+      if (strcmpInsensitive(name, g_ignoreList[i]))
+        return true;
+    } else {
+      if (strcmp(name, g_ignoreList[i]) == 0)
+        return true;
+    }
+  }
+  return false;
 }
 
 int main(int argc, char *argv[]) {
@@ -53,17 +54,17 @@ int main(int argc, char *argv[]) {
     puts("Flag: -s for case insensitive search");
     puts("Flag: -r for g_recursive search");
     puts("Flag: -e for g_exact search");
-		puts("Flag: -i <dir> to ignore a directory");
+    puts("Flag: -i <dir> to ignore a directory");
     exit(1);
   }
-	g_exact = 0;
-	g_recursive = 0;
-	g_caseInsensitive = 0;
+  g_exact = 0;
+  g_recursive = 0;
+  g_caseInsensitive = 0;
   char *dir = argv[1];
-	g_pattern = argv[2];
-	g_patternLength = strlen(g_pattern);
+  g_pattern = argv[2];
+  g_patternLength = strlen(g_pattern);
 
-	computeLPSArray();
+  computeLPSArray();
 
   for (int i = 3; i < argc; i++) {
     if (strcmp(argv[i], "-s") == 0)
@@ -75,12 +76,13 @@ int main(int argc, char *argv[]) {
     if (strcmp(argv[i], "-e") == 0)
       g_exact = 1;
 
-		if (strcmp(argv[i], "-i") == 0) {
-			if (g_ignoreCount < MAX_IGNORE && i + 1 < argc)
-				g_ignoreList[g_ignoreCount++] = argv[++i];
-			else 
-				fprintf(stderr, "Warning: maximum ignore list size (%d) reached\n", MAX_IGNORE);
-		}
+    if (strcmp(argv[i], "-i") == 0) {
+      if (g_ignoreCount < MAX_IGNORE && i + 1 < argc)
+        g_ignoreList[g_ignoreCount++] = argv[++i];
+      else
+        fprintf(stderr, "Warning: maximum ignore list size (%d) reached\n",
+                MAX_IGNORE);
+    }
   }
 
   searchFile(dir);
@@ -94,7 +96,10 @@ void computeLPSArray() {
 
   int i = 1;
   while (i < g_patternLength) {
-    if (g_pattern[i] == g_pattern[len]) {
+    int equal = g_caseInsensitive
+                    ? (tolower(g_pattern[i]) == tolower(g_pattern[len]))
+                    : (g_pattern[i] == g_pattern[len]);
+    if (equal) {
       len++;
       g_lps[i] = len;
       i++;
@@ -115,8 +120,9 @@ int KMPSearch(const char *string) {
   int i = 0, j = 0;
 
   while (i < n) {
-    int match = g_caseInsensitive ? (tolower(g_pattern[j]) == tolower(string[i]))
-                                : (g_pattern[j] == string[i]);
+    int match = g_caseInsensitive
+                    ? (tolower(g_pattern[j]) == tolower(string[i]))
+                    : (g_pattern[j] == string[i]);
     if (match) {
       j++;
       i++;
@@ -143,32 +149,34 @@ void searchFile(const char *directory) {
     fprintf(stderr, "Could not open directory %s\n", directory);
     return;
   }
-  
+
   while ((at = readdir(dr))) {
-    if (strcmp(at->d_name, ".") == 0 || strcmp(at->d_name, "..") == 0) continue;
+    if (strcmp(at->d_name, ".") == 0 || strcmp(at->d_name, "..") == 0)
+      continue;
 
     char path[PATH_MAX];
-    if (strcmp(directory, "/") == 0) snprintf(path, PATH_MAX, "%s%s", directory, at->d_name);
-    else snprintf(path, PATH_MAX, "%s/%s", directory, at->d_name);
-    
+    if (strcmp(directory, "/") == 0)
+      snprintf(path, PATH_MAX, "%s%s", directory, at->d_name);
+    else
+      snprintf(path, PATH_MAX, "%s/%s", directory, at->d_name);
+
     int found = 0;
-    
+
     if (g_exact) {
       if (g_caseInsensitive)
         found = strcmpInsensitive(at->d_name, g_pattern);
       else
         found = strcmp(at->d_name, g_pattern) == 0;
-    }
-    else {
+    } else {
       found = KMPSearch(at->d_name);
     }
 
     if (found)
       printf("%s\n", path);
-    
+
     if (at->d_type == DT_DIR && g_recursive)
-			if (!shouldIgnore(at->d_name))
-				searchFile(path);
+      if (!shouldIgnore(at->d_name))
+        searchFile(path);
   }
 
   closedir(dr);
