@@ -1,5 +1,7 @@
+#include "queue.h"
 #include <ctype.h>
 #include <dirent.h>
+#include <fcntl.h>
 #include <linux/limits.h>
 #include <pthread.h>
 #include <stdbool.h>
@@ -30,7 +32,35 @@ static unsigned char g_patternLower[PATTERN_MAX];
 
 void preprocess();
 int BMHSearch(const char *string);
-void searchFile(char* path, size_t len);
+void searchFile(char *path, size_t len, int parentFd, Queue *q);
+
+static bool pathContains(const char *path, const char *ignore,
+                         bool caseInsensitive) {
+  size_t n = strlen(ignore);
+  const char *p = path;
+
+  while (1) {
+    p = caseInsensitive ? strcasestr(p, ignore) : strstr(p, ignore);
+    if (!p)
+      return false;
+
+    bool left = (p == path) || p[-1] == '/';
+    bool right = p[n] == '\0' || p[n] == '/';
+
+    if (left && right)
+      return true;
+
+    p++;
+  }
+}
+
+static bool shouldIgnore(const char *path) {
+  for (uint8_t i = 0; i < g_ignoreCount; i++) {
+    if (pathContains(path, g_ignoreList[i], g_caseInsensitive))
+      return true;
+  }
+  return false;
+}
 
 static int strcmpInsensitive(const char *a, const char *b) {
   while (*a && *b) {
@@ -40,19 +70,6 @@ static int strcmpInsensitive(const char *a, const char *b) {
     b++;
   }
   return *a == *b;
-}
-
-static bool shouldIgnore(const char *name) {
-  for (uint8_t i = 0; i < g_ignoreCount; i++) {
-    if (g_caseInsensitive) {
-      if (strcmpInsensitive(name, g_ignoreList[i]))
-        return true;
-    } else {
-      if (strcmp(name, g_ignoreList[i]) == 0)
-        return true;
-    }
-  }
-  return false;
 }
 
 int main(int argc, char *argv[]) {
@@ -69,8 +86,8 @@ int main(int argc, char *argv[]) {
   g_recursive = 0;
   g_caseInsensitive = 0;
 
-	char path[PATH_MAX];
-	strcpy(path, argv[1]);
+  char path[PATH_MAX];
+  strcpy(path, argv[1]);
 
   g_pattern = argv[2];
   g_patternLength = strlen(g_pattern);
@@ -99,9 +116,18 @@ int main(int argc, char *argv[]) {
     }
   }
 
-
   preprocess();
-  searchFile(path, strlen(path));
+
+  Queue q;
+  queueInit(&q, 256);
+  queuePush(&q, path, -1);
+
+  Entry e;
+  while (queuePop(&q, &e)) {
+    searchFile(e.path, strlen(e.path), e.dirfd, &q);
+  }
+
+  queueDestroy(&q);
 
   return 0;
 }
@@ -163,34 +189,40 @@ int BMHSearch(const char *string) {
   return 0;
 }
 
-void searchFile(char* path, size_t len) {
-  struct dirent *at;
-  DIR *dr = opendir(path);
+void searchFile(char *path, size_t len, int parentFd, Queue *q) {
+  DIR *dr = (parentFd == -1) ? opendir(path) : fdopendir(parentFd);
 
   if (!dr) {
     fprintf(stderr, "Could not open path %s\n", path);
+    if (parentFd != -1)
+      close(parentFd);
     return;
   }
+
+  int curFd = dirfd(dr);
+  struct dirent *at;
 
   while ((at = readdir(dr))) {
     if (strcmp(at->d_name, ".") == 0 || strcmp(at->d_name, "..") == 0)
       continue;
 
-		size_t oldLen = len;
-		if (!(len == 1 && path[0] == '/'))
-			path[len++] = '/';
-		
-		size_t nameLen = strlen(at->d_name);
-		memcpy(path + len, at->d_name, nameLen + 1);
-		len += nameLen;
+    size_t oldLen = len;
+    if (!(len == 1 && path[0] == '/'))
+      path[len++] = '/';
+
+    size_t nameLen = strlen(at->d_name);
+    if (len + nameLen >= PATH_MAX) {
+      path[oldLen] = '\0';
+      len = oldLen;
+      continue;
+    }
+    memcpy(path + len, at->d_name, nameLen + 1);
+    len += nameLen;
 
     int found = 0;
-
     if (g_exact) {
-      if (g_caseInsensitive)
-        found = strcmpInsensitive(at->d_name, g_pattern);
-      else
-        found = strcmp(at->d_name, g_pattern) == 0;
+      found = g_caseInsensitive ? strcasecmp(at->d_name, g_pattern) == 0
+                                : strcmp(at->d_name, g_pattern) == 0;
     } else {
       found = BMHSearch(at->d_name);
     }
@@ -198,13 +230,17 @@ void searchFile(char* path, size_t len) {
     if (found)
       printf("%s\n", path);
 
-    if (at->d_type == DT_DIR && g_recursive)
-      if (!shouldIgnore(path))
-        searchFile(path, len);
+    if (at->d_type == DT_DIR && g_recursive && !shouldIgnore(path)) {
+      int childFd = openat(curFd, at->d_name, O_RDONLY | O_DIRECTORY);
+      if (childFd != -1)
+        queuePush(q, path, childFd);
+      else
+        fprintf(stderr, "Could not open %s\n", path);
+    }
 
-		path[oldLen] = '\0';
-		len = oldLen;
+    path[oldLen] = '\0';
+    len = oldLen;
   }
-	
+
   closedir(dr);
 }
