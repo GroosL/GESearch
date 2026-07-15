@@ -32,7 +32,7 @@ static unsigned char g_patternLower[PATTERN_MAX];
 
 void preprocess();
 int BMHSearch(const char *string);
-void searchFile(char *path, size_t len, int parentFd, Queue *q);
+void searchFile(char *path, size_t len, Queue *q);
 
 static bool pathContains(const char *path, const char *ignore,
                          bool caseInsensitive) {
@@ -62,14 +62,25 @@ static bool shouldIgnore(const char *path) {
   return false;
 }
 
-static int strcmpInsensitive(const char *a, const char *b) {
-  while (*a && *b) {
-    if (tolower((unsigned char)(*a)) != tolower((unsigned char)(*b)))
-      return 0;
-    a++;
-    b++;
+void* worker(void* arg) {
+	Queue *q = arg;
+	Entry e;
+
+  while (queuePop(q, &e)) {
+    searchFile(e.path, strlen(e.path), q);
+
+		pthread_mutex_lock(&q->mutex);
+		
+		q->pending--;
+
+		if (q->count == 0 && q->pending == 0) {
+			q->done = true;
+			pthread_cond_broadcast(&q->cond);
+		}
+
+		pthread_mutex_unlock(&q->mutex);
   }
-  return *a == *b;
+	return NULL;
 }
 
 int main(int argc, char *argv[]) {
@@ -120,14 +131,21 @@ int main(int argc, char *argv[]) {
 
   Queue q;
   queueInit(&q, 256);
-  queuePush(&q, path, -1);
+  queuePush(&q, path);
+	
+	int n = (int)sysconf(_SC_NPROCESSORS_ONLN);
+	if (n < 1)
+		n = 1;
+	
+	pthread_t threads[n];
 
-  Entry e;
-  while (queuePop(&q, &e)) {
-    searchFile(e.path, strlen(e.path), e.dirfd, &q);
-  }
+	for (int i = 0; i < n; i++)
+		pthread_create(&threads[i], NULL, worker, &q);
 
-  queueDestroy(&q);
+	for (int i = 0; i < n; i++)
+		pthread_join(threads[i], NULL);
+
+	queueDestroy(&q);
 
   return 0;
 }
@@ -189,17 +207,14 @@ int BMHSearch(const char *string) {
   return 0;
 }
 
-void searchFile(char *path, size_t len, int parentFd, Queue *q) {
-  DIR *dr = (parentFd == -1) ? opendir(path) : fdopendir(parentFd);
+void searchFile(char *path, size_t len, Queue *q) {
+  DIR *dr = opendir(path);
 
   if (!dr) {
     fprintf(stderr, "Could not open path %s\n", path);
-    if (parentFd != -1)
-      close(parentFd);
     return;
   }
 
-  int curFd = dirfd(dr);
   struct dirent *at;
 
   while ((at = readdir(dr))) {
@@ -227,15 +242,15 @@ void searchFile(char *path, size_t len, int parentFd, Queue *q) {
       found = BMHSearch(at->d_name);
     }
 
-    if (found)
-      printf("%s\n", path);
+    if (found) {
+			size_t outLen = len;
+			path[outLen++] = '\n';
+			write(STDOUT_FILENO, path, outLen);
+			path[len] = '\0';
+		}
 
     if (at->d_type == DT_DIR && g_recursive && !shouldIgnore(path)) {
-      int childFd = openat(curFd, at->d_name, O_RDONLY | O_DIRECTORY);
-      if (childFd != -1)
-        queuePush(q, path, childFd);
-      else
-        fprintf(stderr, "Could not open %s\n", path);
+      queuePush(q, path);
     }
 
     path[oldLen] = '\0';
