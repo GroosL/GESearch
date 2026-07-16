@@ -30,9 +30,40 @@ static int g_shift[256];
 static unsigned char g_lower[256];
 static unsigned char g_patternLower[PATTERN_MAX];
 
+#define OUTPUT_BUFFER_SIZE (64 * 1024)
+
+typedef struct {
+  char data[OUTPUT_BUFFER_SIZE];
+  size_t len;
+} OutputBuffer;
+
 void preprocess();
 int BMHSearch(const char *string);
-void searchFile(char *path, size_t len, Queue *q);
+void searchFile(char *path, size_t len, Queue *q, OutputBuffer *out);
+
+static inline void flushOutput(OutputBuffer *out) {
+  if (out->len == 0)
+    return;
+
+  write(STDOUT_FILENO, out->data, out->len);
+  out->len = 0;
+}
+
+static inline void outputPath(OutputBuffer *out, const char *path,
+                              size_t pathLen) {
+  if (pathLen + 1 > OUTPUT_BUFFER_SIZE) {
+    write(STDOUT_FILENO, path, pathLen);
+    write(STDOUT_FILENO, "\n", 1);
+    return;
+  }
+
+  if (out->len + pathLen + 1 > OUTPUT_BUFFER_SIZE)
+    flushOutput(out);
+
+  memcpy(out->data + out->len, path, pathLen);
+  out->len += pathLen;
+  out->data[out->len++] = '\n';
+}
 
 static bool pathContains(const char *path, const char *ignore,
                          bool caseInsensitive) {
@@ -62,29 +93,33 @@ static bool shouldIgnore(const char *path) {
   return false;
 }
 
-void* worker(void* arg) {
-	Queue *q = arg;
-	Entry e;
+void *worker(void *arg) {
+  Queue *q = arg;
+  Entry e;
+	
+	OutputBuffer out = {0};
 
   while (queuePop(q, &e)) {
-    searchFile(e.path, strlen(e.path), q);
+    searchFile(e.path, strlen(e.path), q, &out);
 
-		pthread_mutex_lock(&q->mutex);
-		
-		q->pending--;
+    pthread_mutex_lock(&q->mutex);
 
-		if (q->count == 0 && q->pending == 0) {
-			q->done = true;
-			pthread_cond_broadcast(&q->cond);
-		}
+    q->pending--;
 
-		pthread_mutex_unlock(&q->mutex);
+    if (q->count == 0 && q->pending == 0) {
+      q->done = true;
+      pthread_cond_broadcast(&q->cond);
+    }
+
+    pthread_mutex_unlock(&q->mutex);
   }
-	return NULL;
+
+	flushOutput(&out);
+  return NULL;
 }
 
 int main(int argc, char *argv[]) {
-  // setvbuf(stdout, stdoutBuffer, _IOFBF, sizeof(stdoutBuffer));
+  setvbuf(stdout, stdoutBuffer, _IOFBF, sizeof(stdoutBuffer));
   if (argc < 3) {
     puts("Usage: search <path> <g_pattern> [-s] [-r] [-e] [-i <dir>]");
     puts("Flag: -s for case insensitive search");
@@ -132,20 +167,20 @@ int main(int argc, char *argv[]) {
   Queue q;
   queueInit(&q, 256);
   queuePush(&q, path);
-	
-	int n = (int)sysconf(_SC_NPROCESSORS_ONLN);
-	if (n < 1)
-		n = 1;
-	
-	pthread_t threads[n];
 
-	for (int i = 0; i < n; i++)
-		pthread_create(&threads[i], NULL, worker, &q);
+  int n = (int)sysconf(_SC_NPROCESSORS_ONLN);
+  if (n < 1)
+    n = 1;
 
-	for (int i = 0; i < n; i++)
-		pthread_join(threads[i], NULL);
+  pthread_t threads[n];
 
-	queueDestroy(&q);
+  for (int i = 0; i < n; i++)
+    pthread_create(&threads[i], NULL, worker, &q);
+
+  for (int i = 0; i < n; i++)
+    pthread_join(threads[i], NULL);
+
+  queueDestroy(&q);
 
   return 0;
 }
@@ -207,7 +242,7 @@ int BMHSearch(const char *string) {
   return 0;
 }
 
-void searchFile(char *path, size_t len, Queue *q) {
+void searchFile(char *path, size_t len, Queue *q, OutputBuffer *out) {
   DIR *dr = opendir(path);
 
   if (!dr) {
@@ -243,11 +278,8 @@ void searchFile(char *path, size_t len, Queue *q) {
     }
 
     if (found) {
-			size_t outLen = len;
-			path[outLen++] = '\n';
-			write(STDOUT_FILENO, path, outLen);
-			path[len] = '\0';
-		}
+			outputPath(out, path, len);
+    }
 
     if (at->d_type == DT_DIR && g_recursive && !shouldIgnore(path)) {
       queuePush(q, path);
