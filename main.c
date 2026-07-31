@@ -2,7 +2,7 @@
 #include <ctype.h>
 #include <dirent.h>
 #include <fcntl.h>
-#include <linux/limits.h>
+#include <limits.h>
 #include <pthread.h>
 #include <stdbool.h>
 #include <stdint.h>
