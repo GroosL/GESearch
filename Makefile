@@ -1,14 +1,13 @@
 CC = cc
-CFLAGS = -Wall -O2
+CFLAGS = -Wall -O3
 TARGET = search
+
+SRC = main.c queue.c
 
 all: $(TARGET)
 
-$(TARGET): main.o
-	$(CC) $(CFLAGS) -o $(TARGET) main.o
-
-main.o: main.c
-	$(CC) $(CFLAGS) -c main.c
+$(TARGET): $(SRC)
+	$(CC) $(CFLAGS) -o $(TARGET) $(SRC) -lpthread
 
 debug: CFLAGS = -Wall -g -O0
 debug: $(TARGET)

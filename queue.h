@@ -1,4 +1,4 @@
-#include <linux/limits.h>
+#include <limits.h>
 #include <pthread.h>
 #include <stdlib.h>
 #include <stdbool.h>
