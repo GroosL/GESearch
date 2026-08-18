@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include "queue.h"
 #include <ctype.h>
 #include <dirent.h>
