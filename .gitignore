@@ -2,3 +2,5 @@ search
 main2.c
 *.o
 a.out
+.agents/
+skills-lock.json
