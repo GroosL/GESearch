@@ -58,7 +58,7 @@ static inline void outputPath(OutputBuffer *out, const char *path,
     return;
   }
 
-  if (out->len + pathLen + 1 > OUTPUT_BUFFER_SIZE)
+  if (out->len + pathLen + 1 > 1)
     flushOutput(out);
 
   memcpy(out->data + out->len, path, pathLen);
